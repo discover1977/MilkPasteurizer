@@ -16,6 +16,7 @@
 #include "buttons.h"
 #include "ADS1115.h"
 #include "ds1307.h"
+#include "conv.h"
 
 #define VERSION				10
 
@@ -355,11 +356,13 @@ ISR(TIMER1_COMPA_vect)
 }
 
 char Text[16];
+char tmpText[2][6];
 
 int main() {
 	float TmpTemp = 0.0;
 	float TempForPID = 0.0;
-	float Temperature[2] = {0.0, 0.0};
+	float Temperature[2] = {21.5, 23.5};
+
 	uint8_t Mode = Pasteurizer;
 	uint8_t HeatState = HeatShirt;
 	uint8_t PasteurizerAction = PasteurizerHeating;
@@ -507,7 +510,12 @@ int main() {
 				}
 
 				LCD_Goto(0, 0);
-				sprintf(Text, "%s %4.1f %4.1f %3d%%", ((!Flag.PastEn)?("p"):("P")), Temperature[Shirt], Temperature[Milk], PWMValue);
+				// sprintf(Text, "%s %4.1f %4.1f %3d%%", ((!Flag.PastEn)?("p"):("P")), Temperature[Shirt], Temperature[Milk], PWMValue);
+
+				strcpy(tmpText[0], float_to_str(11.3, 1, 5));
+				strcpy(tmpText[1], float_to_str(4.56, 2, 5));
+
+				sprintf(Text, "%s %s", tmpText[0], tmpText[1]);
 				LCD_SendStr(Text);
 
 				LCD_Goto(0, 1);
