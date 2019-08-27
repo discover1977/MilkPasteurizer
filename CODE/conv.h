@@ -16,4 +16,9 @@
 
 char* float_to_str(float val, uint8_t precision, uint8_t width);
 
+long map(long x, long in_min, long in_max, long out_min, long out_max);
+float mapf(float x, float in_min, float in_max, float out_min, float out_max);
+long constrain(long val, long min, long max);
+float constrainF(float val, float min, float max);
+
 #endif /* CONV_H_ */
