@@ -379,21 +379,6 @@ int main() {
 	BUT_Init();
 	LCD_Init();
 
-	strcpy(tmpText[0], float_to_str(0.0, 3, 0));
-	strcpy(tmpText[1], float_to_str(1.2, 1, 0));
-	strcpy(tmpText[2], float_to_str(34.5, 1, 0));
-	sprintf(Text, "%s %s %s", tmpText[0], tmpText[1], tmpText[2]);
-	LCD_Goto(0, 0);
-	LCD_SendStr(Text);
-
-	strcpy(tmpText[0], float_to_str(0.0, 1, 4));
-	strcpy(tmpText[1], float_to_str(-1.2, 1, 4));
-	strcpy(tmpText[2], float_to_str(-30.5, 1, 5));
-	sprintf(Text, "%s %s %s", tmpText[0], tmpText[1], tmpText[2]);
-	LCD_Goto(0, 1);
-	LCD_SendStr(Text);
-	while(1);
-
 	eeprom_read_block((uint8_t*)&Parametr, 0, sizeof(Parametr));
 
 	if((Parametr.Version == 0xFF) || (BitIsClear(PINC, 7))) {
@@ -448,7 +433,7 @@ int main() {
 				Flag.CalcVelocity = 0;
 
 				if((Temperature[0] - TmpTemp) != Temperature[0]) {
-					//TempVelocity = (Temperature[0] - TmpTemp) * FACTOR;
+					// TempVelocity = (Temperature[0] - TmpTemp) * FACTOR;
 					TempVelocity = (float)(float_window((uint16_t)((Temperature[0] - TmpTemp) * FACTOR * 100.0))) / 100.0;	// Скорость с усреднением
 				}
 				TmpTemp = Temperature[0];
@@ -466,7 +451,7 @@ int main() {
 					} break;
 					case WaitTempAreEqual : {
 						TempForPID = Temperature[Shirt];
-						//TempForPID = (Temperature[Shirt] * K1) + (Temperature[Milk] * K2);
+						// TempForPID = (Temperature[Shirt] * K1) + (Temperature[Milk] * K2);
 						if(Temperature[Milk] >= Temperature[Shirt]) {
 							HeatState = HeatMilk;
 						}
@@ -504,9 +489,13 @@ int main() {
 				for(uint8_t i = 0; i < sizeof(Text); i++) Text[i] = 0;
 				//sprintf(Text, "%d;%d;%d", (uint16_t)(Temperature[Shirt] * 10.0), (uint16_t)(Temperature[Milk] * 10.0), PWMValue);
 				//memcpy((uint8_t *)&(Packet.Data), Text, strlen(Text));
-				strcpy(tmpText[Shirt], float_to_str(Temperature[Shirt], 1, 4));
-				strcpy(tmpText[Milk], float_to_str(Temperature[Milk], 1, 4));
+
+				float_to_srt_set_point(',');
+				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
+				float_to_str(tmpText[Milk], Temperature[Milk], 1);
+				float_to_srt_set_point('.');
 				sprintf(Text, "%s;%s;%d",tmpText[Shirt], tmpText[Milk], PWMValue);
+				memcpy((uint8_t *)&(Packet.Data), Text, strlen(Text));
 				send_packet(strlen(Text));
 			}
 		}
@@ -561,8 +550,8 @@ int main() {
 					}
 				}
 
-				strcpy(tmpText[Shirt], float_to_str(Temperature[Shirt], 1, 4));
-				strcpy(tmpText[Milk], float_to_str(Temperature[Milk], 1, 4));
+				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
+				float_to_str(tmpText[Milk], Temperature[Milk], 1);
 				// мощность -------------
 				// t молока ----------  |
 				// t рубашки ------  |  |
@@ -573,7 +562,7 @@ int main() {
 				LCD_SendStr(Text);
 
 				LCD_Goto(0, 1);
-				strcpy(tmpText[0], float_to_str(TempForPID, 1, 4));
+				float_to_str(tmpText[1], TempForPID, 1);
 				if(HeatState == HeatMilk) sprintf(tmpText[1], "%2d:%02d", PastTimeCounter / 60, PastTimeCounter % 60);
 				else sprintf(tmpText[1], "--%d--", HeatState);
 				// состояние --------------
@@ -585,8 +574,8 @@ int main() {
 			} break;
 
 			case HeatSpeedControl : {
-				strcpy(tmpText[Shirt], float_to_str(Temperature[Shirt], 1, 4));
-				strcpy(tmpText[Milk], float_to_str(Temperature[Milk], 1, 4));
+				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
+				float_to_str(tmpText[Milk], Temperature[Milk], 1);
 				// мощность -------------
 				// t молока ----------  |
 				// t рубашки ------  |  |
@@ -596,7 +585,7 @@ int main() {
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
-				strcpy(tmpText[0], float_to_str(TempVelocity, 2, 5));
+				float_to_str(tmpText[0], TempVelocity, 2);
 				sprintf(Text, "t:%d       V:%s", Parametr.HSCTemperature, tmpText[0]);
 				LCD_Goto(0, 1);
 				LCD_SendStr(Text);
@@ -625,8 +614,8 @@ int main() {
 					}
 				}
 
-				strcpy(tmpText[Shirt], float_to_str(Temperature[Shirt], 1, 4));
-				strcpy(tmpText[Milk], float_to_str(Temperature[Milk], 1, 4));
+				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
+				float_to_str(tmpText[Milk], Temperature[Milk], 1);
 				// мощность -------------
 				// t молока ----------  |
 				// t рубашки ------  |  |
@@ -636,7 +625,7 @@ int main() {
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
-				strcpy(tmpText[0], float_to_str(TempVelocity, 2, 5));
+				float_to_str(tmpText[0], TempVelocity, 2);
 				sprintf(Text, "           V:%s", tmpText[0]);
 				LCD_Goto(0, 1);
 				LCD_SendStr(Text);
@@ -662,9 +651,9 @@ int main() {
 					}
 				}
 
-				strcpy(tmpText[PCoeff], float_to_str(Parametr.PIDCoeff[PCoeff], 1, 4));
-				strcpy(tmpText[ICoeff], float_to_str(Parametr.PIDCoeff[ICoeff], 1, 4));
-				strcpy(tmpText[DCoeff], float_to_str(Parametr.PIDCoeff[DCoeff], 1, 4));
+				float_to_str(tmpText[P_Edit], Parametr.PIDCoeff[PCoeff], 1);
+				float_to_str(tmpText[I_Edit], Parametr.PIDCoeff[ICoeff], 1);
+				float_to_str(tmpText[D_Edit], Parametr.PIDCoeff[DCoeff], 1);
 				sprintf(Text, " %s %s %s ", tmpText[PCoeff], tmpText[ICoeff], tmpText[DCoeff]);
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);

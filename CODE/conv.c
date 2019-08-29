@@ -7,30 +7,35 @@
 
 #include "conv.h"
 
-char* float_to_str(float val, uint8_t precision, uint8_t width) {
-	static char str[STR_LEN];
-	char tmpStr[STR_LEN];
+static char pointChar = POINT;
+
+void float_to_srt_set_point(char p) {
+	if((p == '.') || (p == ',')) pointChar = p;
+	else pointChar = '.';
+}
+
+void float_to_str(char *buf, float val, uint8_t precision) {
+	char tmpStr[BUF_SIZE];
 	uint16_t mult = 1;
 	int16_t i = 0;
 	uint8_t j = 0;
 	int16_t tmp;
 
-
-	for(i = 0; i < STR_LEN; i++) tmpStr[i] = str[i] = 0x00;
+	for(i = 0; i < BUF_SIZE; i++) tmpStr[i] = buf[i] = 0x00;
 
 	if(val != 0.0) {
 		for(i = 0; i < precision; i++) mult *= 10;
 		tmp = fabs(val) * mult;
 
-		for(i = 0; i < STR_LEN; i++) {
-			tmpStr[i] = ((tmp % 10) + '0'/*0x30*/);
+		for(i = 0; i < BUF_SIZE; i++) {
+			tmpStr[i] = ((tmp % 10) + '0');
 			tmp /= 10;
 			if(tmp <= 0) break;
 		}
 
 		if(fabs(val) < 1.0) {
 			i++;
-			tmpStr[i] = '0'/*0x30*/;
+			tmpStr[i] = '0';
 		}
 
 		if(val < 0.0) {
@@ -38,41 +43,29 @@ char* float_to_str(float val, uint8_t precision, uint8_t width) {
 			tmpStr[i] = '-';
 		}
 
-		if(width > 0) {
-			tmp = i;
-			width -= 2;
-			for(uint8_t c = 0; c < width - tmp; c++) {
-				i++;
-				tmpStr[i] = ' ';
-			}
-		}
-
 		tmp = i;
-		for(j = 0; j < (STR_LEN + 1); j++) {
+		for(j = 0; j < (BUF_SIZE + 1); j++) {
 			if(j == tmp - (precision - 1)) {
-				str[j] = '.';
+				buf[j] = pointChar;
 			}
 			else {
-				str[j] = tmpStr[i];
+				buf[j] = tmpStr[i];
 				if(--i < 0) break;
 			}
 		}
-
-		return str;
 	}
 	else {
 		if(precision == 0) {
-			str[0] = '0';
+			buf[0] = '0';
 		}
 		else {
 			for(i = 0; i < (precision + 2); i++) {
 				if(i == 1) {
-					str[i] = '.';
+					buf[i] = pointChar;
 				}
-				else str[i] = '0';
+				else buf[i] = '0';
 			}
 		}
-		return str;
 	}
 }
 
