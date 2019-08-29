@@ -13,51 +13,68 @@ char* float_to_str(float val, uint8_t precision, uint8_t width) {
 	uint16_t mult = 1;
 	int16_t i = 0;
 	uint8_t j = 0;
+	int16_t tmp;
 
-	for(i = 0; i < precision; i++) mult *= 10;
-	int16_t tmp = fabs(val) * mult;
 
 	for(i = 0; i < STR_LEN; i++) tmpStr[i] = str[i] = 0x00;
 
-	for(i = 0; i < STR_LEN; i++) {
-		tmpStr[i] = ((tmp % 10) + 0x30);
-		tmp /= 10;
-		if((tmp % 10) == 0) break;
-	}
+	if(val != 0.0) {
+		for(i = 0; i < precision; i++) mult *= 10;
+		tmp = fabs(val) * mult;
 
-	if(fabs(val) < 1.0) {
-		i++;
-		tmpStr[i] = 0x30;
-	}
-
-	if(val < 0.0) {
-		i++;
-		tmpStr[i] = '-';
-	}
-
-	if(width > 0) {
-		tmp = i;
-		width -= 2;
-		for(uint8_t c = 0; c < width - tmp; c++) {
-			i++;
-			tmpStr[i] = ' ';
+		for(i = 0; i < STR_LEN; i++) {
+			tmpStr[i] = ((tmp % 10) + '0'/*0x30*/);
+			tmp /= 10;
+			if(tmp <= 0) break;
 		}
-	}
 
-	tmp = i;
-	for(j = 0; j < (STR_LEN + 1); j++) {
-		if(j == tmp - (precision - 1)) {
-			str[j] = '.';
+		if(fabs(val) < 1.0) {
+			i++;
+			tmpStr[i] = '0'/*0x30*/;
+		}
+
+		if(val < 0.0) {
+			i++;
+			tmpStr[i] = '-';
+		}
+
+		if(width > 0) {
+			tmp = i;
+			width -= 2;
+			for(uint8_t c = 0; c < width - tmp; c++) {
+				i++;
+				tmpStr[i] = ' ';
+			}
+		}
+
+		tmp = i;
+		for(j = 0; j < (STR_LEN + 1); j++) {
+			if(j == tmp - (precision - 1)) {
+				str[j] = '.';
+			}
+			else {
+				str[j] = tmpStr[i];
+				if(--i < 0) break;
+			}
+		}
+
+		return str;
+	}
+	else {
+		if(precision == 0) {
+			str[0] = '0';
 		}
 		else {
-			str[j] = tmpStr[i];
-			if(--i < 0) break;
+			for(i = 0; i < (precision + 2); i++) {
+				if(i == 1) {
+					str[i] = '.';
+				}
+				else str[i] = '0';
+			}
 		}
+		return str;
 	}
-
-	return str;
 }
-
 
 long map(long x, long in_min, long in_max, long out_min, long out_max) {
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
