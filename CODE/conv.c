@@ -9,9 +9,10 @@
 
 static char pointChar = POINT;
 
-void float_to_srt_set_point(char p) {
-	if((p == '.') || (p == ',')) pointChar = p;
-	else pointChar = '.';
+void float_to_strP(char *buf, float val, uint8_t precision, char p) {
+	pointChar = p;
+	float_to_str(buf, val, precision);
+	pointChar = POINT;
 }
 
 void float_to_str(char *buf, float val, uint8_t precision) {

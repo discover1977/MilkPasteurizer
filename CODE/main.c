@@ -160,9 +160,9 @@ void init_eeprom() {
 	Parametr.HSCTemperature = 95;
 	Parametr.PastTemperature = DEF_PAST_TEMP;
 	Parametr.PasteurizerTime = DEF_PAST_TIME;
-	Parametr.PIDCoeff[PCoeff] = 20.0;
-	Parametr.PIDCoeff[ICoeff] = 10.0;
-	Parametr.PIDCoeff[DCoeff] = 0.5;
+	Parametr.PIDCoeff[PCoeff] = 10.0;
+	Parametr.PIDCoeff[ICoeff] = 0.5;
+	Parametr.PIDCoeff[DCoeff] = 2.0;
 	save_eeprom();
 }
 
@@ -284,8 +284,9 @@ struct Packet
 } Packet;
 
 uint8_t packetSize = 0;
-
-void send_packet(uint8_t strl) {
+void send_packet(char *pack) {
+	uint8_t strl = strlen(pack);
+	memcpy((uint8_t *)&(Packet.Data), pack, strl);
 	packetSize = strl + 2;
 	Packet.Data[strl] = 0x0D;
 	Packet.Data[strl + 1] = 0x0A;
@@ -300,7 +301,7 @@ ISR(USART_TXC_vect)
 
 	static unsigned char TxIndex = 0;
 
-	if (TxIndex < packetSize /*sizeof(Packet) - 1*/) {
+	if (TxIndex < packetSize) {
 		UDR = *(Pointer + TxIndex);
 		TxIndex++;
 	}
@@ -426,8 +427,8 @@ int main() {
 
 		if(Flag.TempMes == 1) {
 			Flag.TempMes = 0;
-			// Temperature[Shirt] = ADS1115_readADC_SingleEnded(Shirt) * 0.003125;
-			// Temperature[Milk] = ADS1115_readADC_SingleEnded(Milk) * 0.003125;
+			Temperature[Shirt] = ADS1115_readADC_SingleEnded(Shirt) * 0.003125;
+			Temperature[Milk] = ADS1115_readADC_SingleEnded(Milk) * 0.003125;
 
 			if(Flag.CalcVelocity) {
 				Flag.CalcVelocity = 0;
@@ -487,16 +488,10 @@ int main() {
 			if(Flag.SendEn == 1) {
 				Flag.SendEn = 0;
 				for(uint8_t i = 0; i < sizeof(Text); i++) Text[i] = 0;
-				//sprintf(Text, "%d;%d;%d", (uint16_t)(Temperature[Shirt] * 10.0), (uint16_t)(Temperature[Milk] * 10.0), PWMValue);
-				//memcpy((uint8_t *)&(Packet.Data), Text, strlen(Text));
-
-				float_to_srt_set_point(',');
-				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
-				float_to_str(tmpText[Milk], Temperature[Milk], 1);
-				float_to_srt_set_point('.');
+				float_to_strP(tmpText[Shirt], Temperature[Shirt], 1, ',');
+				float_to_strP(tmpText[Milk], Temperature[Milk], 1, ',');
 				sprintf(Text, "%s;%s;%d",tmpText[Shirt], tmpText[Milk], PWMValue);
-				memcpy((uint8_t *)&(Packet.Data), Text, strlen(Text));
-				send_packet(strlen(Text));
+				send_packet(Text);
 			}
 		}
 
@@ -552,12 +547,12 @@ int main() {
 
 				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
 				float_to_str(tmpText[Milk], Temperature[Milk], 1);
-				// мощность -------------
-				// t молока ----------  |
-				// t рубашки ------  |  |
-				// инд. режим --  |  |  |
-				//             |  |  |  |
-				sprintf(Text, "%s %s %s %3d%%", ((!Flag.PastEn)?("p"):("P")), tmpText[Shirt], tmpText[Milk], PWMValue);
+				// мощность -----------------
+				// t молока ------------    |
+				// t рубашки -------   |    |
+				// инд. режим --   |   |    |
+				//             |   |   |    |
+				sprintf(Text, "%s %4s %4s %3d%%", ((!Flag.PastEn)?("p"):("P")), tmpText[Shirt], tmpText[Milk], PWMValue);
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
@@ -566,27 +561,27 @@ int main() {
 				if(HeatState == HeatMilk) sprintf(tmpText[1], "%2d:%02d", PastTimeCounter / 60, PastTimeCounter % 60);
 				else sprintf(tmpText[1], "--%d--", HeatState);
 				// состо€ние --------------
-				// t дл€ PID регул€тора   |
-				// t пастеризации -  |    |
-				//                |  |    |
-				sprintf(Text, "t:%2d %s  %s", Parametr.PastTemperature, tmpText[0], tmpText[1]);
+				// t дл€ PID регул€тора    |
+				// t пастеризации     |    |
+				//                |   |    |
+				sprintf(Text, "t:%2d %4s  %s", Parametr.PastTemperature, tmpText[0], tmpText[1]);
 				LCD_SendStr(Text);
 			} break;
 
 			case HeatSpeedControl : {
 				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
 				float_to_str(tmpText[Milk], Temperature[Milk], 1);
-				// мощность -------------
-				// t молока ----------  |
-				// t рубашки ------  |  |
-				// инд. режим --  |  |  |
-				//             |  |  |  |
-				sprintf(Text, "%s %s %s %3d%%", ((!Flag.HSCEn)?("s"):("S")), tmpText[Shirt], tmpText[Milk], PWMValue);
+				// мощность ---------------
+				// t молока ------------  |
+				// t рубашки -------   |  |
+				// инд. режим --   |   |  |
+				//             |   |   |  |
+				sprintf(Text, "%s %4s %4s %3d%%", ((!Flag.HSCEn)?("s"):("S")), tmpText[Shirt], tmpText[Milk], PWMValue);
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
 				float_to_str(tmpText[0], TempVelocity, 2);
-				sprintf(Text, "t:%d       V:%s", Parametr.HSCTemperature, tmpText[0]);
+				sprintf(Text, "t:%d       V:%6s", Parametr.HSCTemperature, tmpText[0]);
 				LCD_Goto(0, 1);
 				LCD_SendStr(Text);
 
@@ -616,17 +611,17 @@ int main() {
 
 				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
 				float_to_str(tmpText[Milk], Temperature[Milk], 1);
-				// мощность -------------
-				// t молока ----------  |
-				// t рубашки ------  |  |
-				// инд. режим --  |  |  |
-				//             |  |  |  |
-				sprintf(Text, "%s %s %s %3d%%", ((!Flag.ManEn)?("m"):("M")), tmpText[Shirt], tmpText[Milk], PWMValue);
+				// мощность -----------------
+				// t молока ------------    |
+				// t рубашки -------   |    |
+				// инд. режим --   |   |    |
+				//             |   |   |    |
+				sprintf(Text, "%s %4s %4s %3d%%", ((!Flag.ManEn)?("m"):("M")), tmpText[Shirt], tmpText[Milk], PWMValue);
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
 				float_to_str(tmpText[0], TempVelocity, 2);
-				sprintf(Text, "           V:%s", tmpText[0]);
+				sprintf(Text, "           V:%6s", tmpText[0]);
 				LCD_Goto(0, 1);
 				LCD_SendStr(Text);
 
@@ -651,10 +646,10 @@ int main() {
 					}
 				}
 
-				float_to_str(tmpText[P_Edit], Parametr.PIDCoeff[PCoeff], 1);
-				float_to_str(tmpText[I_Edit], Parametr.PIDCoeff[ICoeff], 1);
-				float_to_str(tmpText[D_Edit], Parametr.PIDCoeff[DCoeff], 1);
-				sprintf(Text, " %s %s %s ", tmpText[PCoeff], tmpText[ICoeff], tmpText[DCoeff]);
+				float_to_str(tmpText[PCoeff], Parametr.PIDCoeff[PCoeff], 1);
+				float_to_str(tmpText[ICoeff], Parametr.PIDCoeff[ICoeff], 1);
+				float_to_str(tmpText[DCoeff], Parametr.PIDCoeff[DCoeff], 1);
+				sprintf(Text, " %4s %4s %4s ", tmpText[PCoeff], tmpText[ICoeff], tmpText[DCoeff]);
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
