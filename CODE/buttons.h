@@ -57,7 +57,7 @@
 чтобы она считалась длительно нажатой
 должно быть больше BUT_COUNT_THR */
 
-#define BUT_COUNT_HELD       1000
+#define BUT_COUNT_HELD       750
 
 
 /*размер буфера событий.
