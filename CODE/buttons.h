@@ -46,18 +46,18 @@
 кнопку, чтобы она считалась нажатой. 
 должно быть меньше BUT_COUNT_HELD */
 
-#define BUT_COUNT_THR        10
+#define BUT_COUNT_THR        5
 
 /*максимальное количество циклов между первым 
 и вторым нажатием кнопки для двойного щелчка*/
 
-#define BUT_COUNT_THR_2      150
+#define BUT_COUNT_THR_2      100
 
 /*сколько циклов опроса нужно удерживать кнопку,
 чтобы она считалась длительно нажатой
 должно быть больше BUT_COUNT_THR */
 
-#define BUT_COUNT_HELD       750
+#define BUT_COUNT_HELD       1000
 
 
 /*размер буфера событий.
@@ -108,7 +108,7 @@ BUT_1_EVEN   список событий, которые фиксируется в буфере (BUT_EV_PRESSED|BUT_EV
 #define BUT_1_PIN    7
 #define BUT_1_LEV    0
 #define BUT_1_PULL   1
-#define BUT_1_EVENT  (BUT_PRESSED_EN|BUT_EV_RELEASED_LONG|BUT_EV_DOUBLE_CLICK)
+#define BUT_1_EVENT  (BUT_EV_ALL)
 
 #define BUT_2_ID     2
 #define BUT_2_DDRX   DDRC
@@ -117,7 +117,7 @@ BUT_1_EVEN   список событий, которые фиксируется в буфере (BUT_EV_PRESSED|BUT_EV
 #define BUT_2_PIN    7
 #define BUT_2_LEV    0
 #define BUT_2_PULL   1
-#define BUT_2_EVENT  (BUT_PRESSED_EN|BUT_EV_RELEASED_LONG|BUT_EV_DOUBLE_CLICK)
+#define BUT_2_EVENT  (BUT_EV_ALL)
 
 #define BUT_3_ID     3
 #define BUT_3_DDRX   DDRC
@@ -126,7 +126,7 @@ BUT_1_EVEN   список событий, которые фиксируется в буфере (BUT_EV_PRESSED|BUT_EV
 #define BUT_3_PIN    6
 #define BUT_3_LEV    0
 #define BUT_3_PULL   1
-#define BUT_3_EVENT  (BUT_PRESSED_EN|BUT_EV_RELEASED_LONG|BUT_EV_DOUBLE_CLICK)
+#define BUT_3_EVENT  (BUT_EV_ALL)
 
 /**************** пользовательские функции *****************/
 
