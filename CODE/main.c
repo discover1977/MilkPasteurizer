@@ -87,6 +87,12 @@ enum PasteurizerActionEnum {
 	PasteurizerDelay
 };
 
+enum PasteurizerParamName {
+	PasteurizerNone = -1,
+	PasteurizerTemp,
+	PasteurizerTime
+};
+
 enum HeatState {
 	HeatShirt,
 	WaitTempAreEqual,
@@ -141,10 +147,9 @@ enum TimeArrName {
 
 struct Parametr {
 	uint8_t Version;
-	uint8_t PastTemperature;
+	int16_t PasteurizerParam[2];
 	uint16_t THParam[3];
-	uint16_t MinMaxParam[2][6];
-	uint16_t PasteurizerTime;
+	int16_t MinMaxParam[2][6];
 	float PIDCoeff[3];
 } Parametr;
 
@@ -212,8 +217,8 @@ void init_eeprom() {
 	Parametr.MinMaxParam[Max][MMSecond] = 59;
 
 
-	Parametr.PastTemperature = DEF_PAST_TEMP;
-	Parametr.PasteurizerTime = DEF_PAST_TIME;
+	Parametr.PasteurizerParam[PasteurizerTemp] = DEF_PAST_TEMP;
+	Parametr.PasteurizerParam[PasteurizerTime] = DEF_PAST_TIME;
 	Parametr.PIDCoeff[PCoeff] = 10.0;
 	Parametr.PIDCoeff[ICoeff] = 0.5;
 	Parametr.PIDCoeff[DCoeff] = 2.0;
@@ -434,7 +439,7 @@ int main() {
 
 	int8_t Time[3];
 	rtc_init(0, 1, 0);
-	rtc_set_time(22, 1, 35);
+	// rtc_set_time(0, 0, 0);
 	rtc_get_time( (uint8_t*)&Time[Hour], (uint8_t*)&Time[Minute], (uint8_t*)&Time[Second]);
 
 	TIMSK = (1 << OCIE1A) | (1 << OCIE2) ;
@@ -465,7 +470,7 @@ int main() {
 				switch(HeatState) {
 					case HeatShirt : {
 						TempForPID = Temperature[Shirt];
-						if(Temperature[Shirt] >= (float)Parametr.PastTemperature) {
+						if(Temperature[Shirt] >= (float)Parametr.PasteurizerParam[PasteurizerTemp]) {
 							HeatState = HeatMilk;
 						}
 					} break;
@@ -483,12 +488,12 @@ int main() {
 					default : break;
 				}
 
-				PWMValue = PID(Parametr.PastTemperature, TempForPID, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
+				PWMValue = PID(Parametr.PasteurizerParam[PasteurizerTemp], TempForPID, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
 
 				if(PasteurizerAction == PasteurizerHeating) {
-					if(Temperature[Milk] >= Parametr.PastTemperature) {
+					if(Temperature[Milk] >= Parametr.PasteurizerParam[PasteurizerTemp]) {
 						PasteurizerAction = PasteurizerDelay;
-						PastTimeCounter = Parametr.PasteurizerTime;
+						PastTimeCounter = Parametr.PasteurizerParam[PasteurizerTime];
 					}
 				}
 
@@ -503,6 +508,35 @@ int main() {
 				}
 			}
 			/********************************************************************************************* Управление пастеризацией */
+
+			/* Нарев по времени *****************************************************************************************************/
+			if(Flag.TimeEn) {
+				switch(HeatState) {
+					case HeatShirt : {
+						TempForPID = Temperature[Shirt];
+						if(Temperature[Shirt] >= (float)Parametr.THParam[THTemperature]) {
+							HeatState = WaitTempAreEqual;
+						}
+					} break;
+					case WaitTempAreEqual : {
+						TempForPID = Temperature[Shirt];
+						// TempForPID = (Temperature[Shirt] * K1) + (Temperature[Milk] * K2);
+						if(Temperature[Milk] >= Temperature[Shirt]) {
+							HeatState = HeatMilk;
+						}
+					} break;
+					case HeatMilk : {
+						TempForPID = Temperature[Milk];
+						//TempForPID = (Temperature[Shirt] * K1) + (Temperature[Milk] * K2);
+						if(TempForPID >= Parametr.THParam[THTemperature]) {
+							Flag.TimeEn = 0;
+							PWMValue = 0;
+						}
+					} break;
+					default : break;
+				}
+			}
+			/***************************************************************************************************** Нарев по времени */
 
 			if(Flag.SendEn == 1) {
 				Flag.SendEn = 0;
@@ -534,6 +568,7 @@ int main() {
 				case Pasteurizer : Flag.PastEn = 1; PasteurizerAction = PasteurizerHeating; HeatState = HeatShirt; break;
 				case TimeControl : {
 					Flag.TimeEn = 1;
+					HeatState = HeatShirt;
 					PWMValue = calc_time_pwm(Temperature[Shirt], Parametr.THParam[THTime], Parametr.THParam[THVolume]);
 					} break;
 				case ManualControl : Flag.ManEn = 1; break;
@@ -587,7 +622,7 @@ int main() {
 
 					if((ButtonCode == BUT_DEC) && (ButtonEvent == BUT_RELEASED_CODE)) {
 						Time[TimeEdit]--;
-						if(Time[TimeEdit] > Parametr.MinMaxParam[Min][TimeEdit + MMHour]) {
+						if(Time[TimeEdit] < Parametr.MinMaxParam[Min][TimeEdit + MMHour]) {
 							Time[TimeEdit] = Parametr.MinMaxParam[Max][TimeEdit + MMHour];
 						}
 					}
@@ -597,11 +632,11 @@ int main() {
 			case Pasteurizer : {
 				if(FlagActivity == 0) {
 					if((ButtonCode == BUT_INC) && (ButtonEvent == BUT_RELEASED_CODE)) {
-						if(++Parametr.PastTemperature > MAX_PAST_TEMP) Parametr.PastTemperature = MAX_PAST_TEMP;
+						if(++Parametr.PasteurizerParam[PasteurizerTemp] > MAX_PAST_TEMP) Parametr.PasteurizerParam[PasteurizerTemp] = MAX_PAST_TEMP;
 					}
 
 					if((ButtonCode == BUT_DEC) && (ButtonEvent == BUT_RELEASED_CODE)) {
-						if(--Parametr.PastTemperature < MIN_PAST_TEMP) Parametr.PastTemperature = MIN_PAST_TEMP;
+						if(--Parametr.PasteurizerParam[PasteurizerTemp] < MIN_PAST_TEMP) Parametr.PasteurizerParam[PasteurizerTemp] = MIN_PAST_TEMP;
 					}
 				}
 				// TODO добавить edit mode
@@ -618,13 +653,12 @@ int main() {
 
 				LCD_Goto(0, 1);
 				float_to_str(tmpText[1], TempForPID, 1);
-				if(HeatState == HeatMilk) sprintf(tmpText[1], "%2d:%02d", PastTimeCounter / 60, PastTimeCounter % 60);
-				else sprintf(tmpText[1], "--%d--", HeatState);
+				sprintf(tmpText[1], "%2d:%02d", PastTimeCounter / 60, PastTimeCounter % 60);
 				// состояние --------------
 				// t для PID регулятора    |
 				// t пастеризации     |    |
 				//                |   |    |
-				sprintf(Text, "t:%2d %4s  %s", Parametr.PastTemperature, tmpText[0], tmpText[1]);
+				sprintf(Text, "t:%2d %4s  %s", Parametr.PasteurizerParam[PasteurizerTemp], tmpText[0], tmpText[1]);
 				LCD_SendStr(Text);
 			} break;
 
