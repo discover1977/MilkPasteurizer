@@ -21,6 +21,11 @@
 
 #define VERSION				10
 
+#define EMUL				0
+
+#define LOW					0
+#define HIGH				1
+
 #define CALC_INTERVAL		1
 #define FACTOR				60.0 / (float)CALC_INTERVAL
 
@@ -47,29 +52,28 @@
 #define PWM_PIN_DDR			DDRB
 #define PWM_PIN				1
 
-#define OUT1_PIN_PORT		PORTD
-#define OUT1_PIN_DDR		DDRD
-#define OUT1_PIN			6
+#define OUT1_PORT		PORTD
+#define OUT1_DDR		DDRD
+#define OUT1_PIN		6
 
-#define OUT2_PIN_PORT		PORTD
-#define OUT2_PIN_DDR		DDRD
-#define OUT2_PIN			5
+#define OUT2_PORT		PORTD
+#define OUT2_DDR		DDRD
+#define OUT2_PIN		5
 
-#define TEST_PIN_PORT		PORTC
-#define TEST_PIN_DDR		DDRC
-#define TEST_PIN			0
+#define TEST_PORT		PORTC
+#define TEST_DDR		DDRC
+#define TEST_PIN		0
+
+#define BEEP_PORT		PORTB
+#define BEEP_DDR		DDRB
+#define BEEP_PIN		0
 
 #define BUT_DEC	BUT_1_ID
 #define BUT_ENT	BUT_2_ID
 #define BUT_INC	BUT_3_ID
 
-#define ACC_BITS			4
-#define AccSizeMacro(val)	(1 << val)
-
-uint8_t ButtonCode, ButtonEvent;
-uint16_t PastTimeCounter = 0;
-
-int16_t Buffer[AccSizeMacro(ACC_BITS)];
+// #define ACC_BITS			4
+// #define AccSizeMacro(val)	(1 << val)
 
 enum ModeList {
 	StartModeList,
@@ -147,6 +151,12 @@ enum TimeArrName {
 	Second
 };
 
+uint8_t ButtonCode, ButtonEvent;
+uint16_t PastTimeCounter = 0;
+uint16_t BeepTime = 0, BeepCycle;
+uint8_t PasteurizerAction = PasteurizerHeating;
+// int16_t Buffer[AccSizeMacro(ACC_BITS)];
+
 struct Parametr {
 	uint8_t Version;
 	int16_t PasteurizerParam[2];
@@ -163,6 +173,7 @@ struct Flag {
 	uint8_t SaveParametr : 1;
 	uint8_t SendEn : 1;
 	uint8_t EditParam : 1;
+	uint8_t Mute : 1;
 	/*uint8_t xxxx : 1;*/
 } Flag;
 
@@ -173,7 +184,7 @@ uint8_t set_pwm(uint8_t val) {
 	return PWMValue;
 }
 
-int16_t float_window(int16_t Value) {
+/*int16_t float_window(int16_t Value) {
 	static uint16_t Index = 0;
 	static int64_t Summ = 0;
 
@@ -188,7 +199,7 @@ int16_t float_window(int16_t Value) {
 	}
 
 	return (Summ >> ACC_BITS);
-}
+}*/
 
 void save_eeprom() {
 	cli();
@@ -238,16 +249,37 @@ void get_but() {
 	}
 }
 
+#if EMUL
+#define SHT_INC_BUT	1
+#define SHT_DEC_BUT	2
+#define MIT_INC_BUT	3
+#define MIT_DEC_BUT	4
+#endif
+
 void port_init() {
-	SetBitVal(PWM_PIN_DDR, PWM_PIN, 1);
-	SetBitVal(PWM_PIN_PORT, PWM_PIN, 0);
-	SetBitVal(OUT1_PIN_DDR, OUT1_PIN, 1);
-	SetBitVal(OUT1_PIN_PORT, OUT1_PIN, 0);
-	SetBitVal(OUT2_PIN_DDR, OUT2_PIN, 1);
-	SetBitVal(OUT2_PIN_PORT, OUT2_PIN, 0);
+	SetBitVal(PWM_PIN_DDR, PWM_PIN, HIGH);
+	SetBitVal(PWM_PIN_PORT, PWM_PIN, LOW);
+	SetBitVal(OUT1_DDR, OUT1_PIN, HIGH);
+	SetBitVal(OUT1_PORT, OUT1_PIN, LOW);
+	SetBitVal(OUT2_DDR, OUT2_PIN, HIGH);
+	SetBitVal(OUT2_PORT, OUT2_PIN, LOW);
 	// TEST PIN INIT
-	SetBitVal(TEST_PIN_DDR, TEST_PIN, 1);
-	SetBitVal(TEST_PIN_PORT, TEST_PIN, 0);
+	SetBitVal(TEST_DDR, TEST_PIN, HIGH);
+	SetBitVal(TEST_PORT, TEST_PIN, LOW);
+
+	// BEEP PIN INIT
+	SetBitVal(BEEP_DDR, BEEP_PIN, HIGH);
+	SetBitVal(BEEP_PORT, BEEP_PIN, LOW);
+#if EMUL
+	SetBitVal(DDRC, SHT_INC_BUT, 0);
+	SetBitVal(PORTC, SHT_INC_BUT, 1);
+	SetBitVal(DDRC, SHT_DEC_BUT, 0);
+	SetBitVal(PORTC, SHT_DEC_BUT, 1);
+	SetBitVal(DDRC, MIT_INC_BUT, 0);
+	SetBitVal(PORTC, MIT_INC_BUT, 1);
+	SetBitVal(DDRC, MIT_DEC_BUT, 0);
+	SetBitVal(PORTC, MIT_DEC_BUT, 1);
+#endif
 }
 
 uint8_t calc_time_pwm(float temperature, uint16_t time, uint8_t vol) {
@@ -343,9 +375,15 @@ void send_packet(char *pack) {
 	Packet.Data[strl] = 0x0D;
 	Packet.Data[strl + 1] = 0x0A;
 	// Запись стартового байта в регистр UDR
-	UDR = 0x09;	//Packet.Data[0];
+	UDR = 0x01;	//Packet.Data[0];
 }
 
+void beep(uint16_t time, uint8_t cycle) {
+	if(!Flag.Mute) {
+		BeepTime = time;
+		BeepCycle = cycle;
+	}
+}
 
 ISR(USART_TXC_vect)
 {
@@ -360,12 +398,15 @@ ISR(USART_TXC_vect)
 	else TxIndex = 0;
 }
 
+// 1ms timer
 ISR(TIMER2_COMP_vect) {
 	TCNT2 = 0x00;
 
 	static uint8_t PWMCounter = 0;
 	static uint8_t Cnt = 0;
-	static uint8_t TempCnt = 0;
+	//static uint8_t TempCnt = 0;
+	static uint16_t lBeepTime = 0;
+	static uint16_t lCyclePause = 0;
 
 	wdt_reset();
 
@@ -383,42 +424,54 @@ ISR(TIMER2_COMP_vect) {
 		}
 	}
 
-	if(++TempCnt == 100) {
+	/*if(++TempCnt == 1000) {
 		TempCnt = 0;
 		Flag.TempMes = 1;
-	}
+	}*/
 
-	InvBit(TEST_PIN_PORT, TEST_PIN);
 	BUT_Poll();
+
+	if(BeepCycle > 0) {
+		if((++lBeepTime < BeepTime) && (lCyclePause == 0)) {
+			SetBitVal(BEEP_PORT, BEEP_PIN, HIGH);
+		}
+		else {
+			SetBitVal(BEEP_PORT, BEEP_PIN, LOW);
+			if(++lCyclePause >= BeepTime) {
+				lCyclePause = 0;
+				lBeepTime = 0;
+				BeepCycle--;
+			}
+		}
+	}
 }
 
-// Секундный таймер
+// 1s timer
 ISR(TIMER1_COMPA_vect)
 {
 	TCNT1 = 0x0000;
-	if((PastTimeCounter > 0) && (Flag.PastEn == 1)) PastTimeCounter--;
+	if((PastTimeCounter > 0) && (PasteurizerAction == PasteurizerDelay)) {
+		PastTimeCounter--;
+	}
 	Flag.SendEn = 1;
+	Flag.TempMes = 1;
 }
 
 char Text[16];
 char tmpText[3][6];
 
-// TODO Сделать звуковую сигнализацию.
-
 int main() {
 	//float TmpTemp = 0.0;
 	float TempForPID = 0.0;
-	float Temperature[2] = {10.0, 25.0};
+	float Temperature[2] = {30.0, 25.0};
 	uint8_t PIDEditMode = PID_None_Edit;
 	int8_t THMode = THNone;
 	int8_t PastEditMode = PasteurizerNone;
 
 	uint8_t Mode = ShowTime;
 	uint8_t HeatState = HeatShirt;
-	uint8_t PasteurizerAction = PasteurizerHeating;
 	uint8_t FlagActivity = 0;
 	int8_t TimeEdit = TENone;
-
 
 	// i2c_Init();
 
@@ -456,6 +509,8 @@ int main() {
 
 	sei();
 
+	beep(250, 3);
+
 	while(1) {
 		get_but();
 		FlagActivity = Flag.ManEn + Flag.PastEn + Flag.TimeEn;
@@ -465,10 +520,68 @@ int main() {
 			save_eeprom();
 		}
 
+		/* Кнопки ************************************************************************************************************************/
+		if((ButtonCode == BUT_ENT) && (ButtonEvent == BUT_RELEASED_CODE)) {
+			switch(Mode) {
+				case Pasteurizer : {
+					SetBitVal(OUT1_PORT, OUT1_PIN, HIGH);
+					Flag.PastEn = 1;
+					PasteurizerAction = PasteurizerHeating;
+					HeatState = HeatShirt;
+				} break;
+				case TimeControl : {
+					SetBitVal(OUT1_PORT, OUT1_PIN, HIGH);
+					Flag.TimeEn = 1;
+					HeatState = HeatShirt;
+					PWMValue = calc_time_pwm(Temperature[Shirt], Parametr.THParam[THTime], Parametr.THParam[THVolume]);
+					} break;
+				case ManualControl : {
+					Flag.ManEn = 1;
+					SetBitVal(OUT1_PORT, OUT1_PIN, HIGH);
+				} break;
+				default : {
+					Flag.PastEn = 0;
+					Flag.ManEn = 0;
+					Flag.TimeEn = 0;
+				}; break;
+			}
+			Flag.SaveParametr = 1;
+		}
+
+		if((ButtonCode == BUT_ENT) && (ButtonEvent == BUT_DOUBLE_CLICK_CODE)) {
+			Flag.PastEn = 0;
+			Flag.ManEn = 0;
+			Flag.TimeEn = 0;
+			PWMValue = 0;
+			SetBitVal(OUT1_PORT, OUT1_PIN, LOW);
+			Flag.SaveParametr = 1;
+		}
+		/************************************************************************************************************************ Кнопки */
+
+#if EMUL
+		if(BitIsClear(PINC, SHT_INC_BUT)) {
+			while(BitIsClear(PINC, SHT_INC_BUT));
+			Temperature[Shirt] += 1.0;
+		}
+		if(BitIsClear(PINC, SHT_DEC_BUT)) {
+			while(BitIsClear(PINC, SHT_DEC_BUT));
+			Temperature[Shirt] -= 1.0;
+		}
+		if(BitIsClear(PINC, MIT_INC_BUT)) {
+			while(BitIsClear(PINC, MIT_INC_BUT));
+			Temperature[Milk] += 1.0;
+		}
+		if(BitIsClear(PINC, MIT_DEC_BUT)) {
+			while(BitIsClear(PINC, MIT_DEC_BUT));
+			Temperature[Milk] -= 1.0;
+		}
+#endif
 		if(Flag.TempMes == 1) {
 			Flag.TempMes = 0;
-			//Temperature[Shirt] = ADS1115_readADC_SingleEnded(Shirt) * 0.003125;
-			//Temperature[Milk] = ADS1115_readADC_SingleEnded(Milk) * 0.003125;
+#if !EMUL
+			Temperature[Shirt] = ADS1115_readADC_SingleEnded(Shirt) * 0.003125;
+			Temperature[Milk] = ADS1115_readADC_SingleEnded(Milk) * 0.003125;
+#endif
 
 			if(Flag.EditParam == 0) rtc_get_time( (uint8_t*)&Time[Hour], (uint8_t*)&Time[Minute], (uint8_t*)&Time[Second]);
 
@@ -495,7 +608,7 @@ int main() {
 					default : break;
 				}
 
-				PWMValue = PID(Parametr.PasteurizerParam[PasteurizerTemp], TempForPID, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
+				PWMValue = PID((float)Parametr.PasteurizerParam[PasteurizerTemp], TempForPID, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
 
 				if(PasteurizerAction == PasteurizerHeating) {
 					if(Temperature[Milk] >= Parametr.PasteurizerParam[PasteurizerTemp]) {
@@ -575,38 +688,6 @@ int main() {
 			LCD_Clear();
 		}
 
-		/* Кнопки ************************************************************************************************************************/
-		if((ButtonCode == BUT_ENT) && (ButtonEvent == BUT_RELEASED_CODE)) {
-			switch(Mode) {
-				case Pasteurizer : {
-					Flag.PastEn = 1;
-					PasteurizerAction = PasteurizerHeating;
-					HeatState = HeatShirt;
-				} break;
-				case TimeControl : {
-					Flag.TimeEn = 1;
-					HeatState = HeatShirt;
-					PWMValue = calc_time_pwm(Temperature[Shirt], Parametr.THParam[THTime], Parametr.THParam[THVolume]);
-					} break;
-				case ManualControl : Flag.ManEn = 1; break;
-				default : {
-					Flag.PastEn = 0;
-					Flag.ManEn = 0;
-					Flag.TimeEn = 0;
-				}; break;
-			}
-			Flag.SaveParametr = 1;
-		}
-
-		if((ButtonCode == BUT_ENT) && (ButtonEvent == BUT_DOUBLE_CLICK_CODE)) {
-			Flag.PastEn = 0;
-			Flag.ManEn = 0;
-			Flag.TimeEn = 0;
-			PWMValue = 0;
-			Flag.SaveParametr = 1;
-		}
-		/************************************************************************************************************************ Кнопки */
-
 		switch (Mode) {
 			case ShowTime : {
 				sprintf(Text, "    %2d:%02d:%02d    ", Time[Hour], Time[Minute], Time[Second]);
@@ -647,15 +728,6 @@ int main() {
 			} break;
 
 			case Pasteurizer : {
-				/*if(FlagActivity == 0) {
-					if((ButtonCode == BUT_INC) && (ButtonEvent == BUT_RELEASED_CODE)) {
-						if(++Parametr.PasteurizerParam[PasteurizerTemp] > MAX_PAST_TEMP) Parametr.PasteurizerParam[PasteurizerTemp] = MAX_PAST_TEMP;
-					}
-
-					if((ButtonCode == BUT_DEC) && (ButtonEvent == BUT_RELEASED_CODE)) {
-						if(--Parametr.PasteurizerParam[PasteurizerTemp] < MIN_PAST_TEMP) Parametr.PasteurizerParam[PasteurizerTemp] = MIN_PAST_TEMP;
-					}
-				}*/
 				if((ButtonCode == BUT_ENT) && (ButtonEvent == BUT_EV_HELD) && (FlagActivity == 0)) {
 					if(++PastEditMode > PasteurizerTime) PastEditMode = PasteurizerNone;
 					if(PastEditMode == PasteurizerNone) {
@@ -676,7 +748,6 @@ int main() {
 					}
 				}
 
-				// TODO добавить edit mode
 				float_to_str(tmpText[Shirt], Temperature[Shirt], 1);
 				float_to_str(tmpText[Milk], Temperature[Milk], 1);
 				// мощность -----------------
@@ -688,8 +759,7 @@ int main() {
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
-				LCD_Goto(0, 1);
-				float_to_str(tmpText[1], TempForPID, 1);
+				float_to_str(tmpText[0], TempForPID, 1);
 				if(PastEditMode == PasteurizerTime) sprintf(tmpText[1], "%2d:  ", Parametr.PasteurizerParam[PasteurizerTime]);
 				else sprintf(tmpText[1], "%2d:%02d", PastTimeCounter / 60, PastTimeCounter % 60);
 				// состояние --------------
@@ -697,6 +767,7 @@ int main() {
 				// t пастеризации     |    |
 				//                |   |    |
 				sprintf(Text, "%s:%2d %4s  %s", ((PastEditMode == PasteurizerTemp)?("T"):("t")), Parametr.PasteurizerParam[PasteurizerTemp], tmpText[0], tmpText[1]);
+				LCD_Goto(0, 1);
 				LCD_SendStr(Text);
 			} break;
 
