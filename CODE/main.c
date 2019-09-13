@@ -18,10 +18,11 @@
 #include "ADS1115.h"
 #include "ds1307.h"
 #include "conv.h"
+#include "filter.h"
 
 #define VERSION				10
 
-#define EMUL				0
+#define EMUL				1
 
 #define LOW					0
 #define HIGH				1
@@ -38,13 +39,12 @@
 #define MAX_PAST_TEMP		70
 #define MIN_PAST_TEMP		40
 
-#define	WATER_VOL			13.0F
-#define	MILK_VOL			30.0F
-#define	K1					(WATER_VOL / MILK_VOL)
-#define	K2					(1.0 - K1)
+#define	SHIRT_VOL			13.0F
+#define	K1(shirtV, milkV)	(shirtV / ((shirtV + milkV) / 100.0) ) / 100.0
+#define	K2(k1)			    (1.0 - k1)
 
-#define MIN_POWER 		0
-#define MAX_POWER		100
+#define MIN_POWER 		0.0F
+#define MAX_POWER		100.0F
 #define HEATING_POWER	3000.0F
 #define HEATING_EFF		0.98F
 
@@ -72,9 +72,6 @@
 #define BUT_ENT	BUT_2_ID
 #define BUT_INC	BUT_3_ID
 
-// #define ACC_BITS			4
-// #define AccSizeMacro(val)	(1 << val)
-
 enum ModeList {
 	StartModeList,
 	ShowTime,
@@ -97,11 +94,12 @@ enum PasteurizerParamName {
 	PasteurizerTime
 };
 
-enum HeatState {
+/*enum HeatStateEnum {
+	FastHeat,
 	HeatShirt,
 	WaitTempAreEqual,
 	HeatMilk
-};
+};*/
 
 enum TemperaturesName {
 	Shirt,
@@ -155,7 +153,6 @@ uint8_t ButtonCode, ButtonEvent;
 uint16_t PastTimeCounter = 0;
 uint16_t BeepTime = 0, BeepCycle;
 uint8_t PasteurizerAction = PasteurizerHeating;
-// int16_t Buffer[AccSizeMacro(ACC_BITS)];
 
 struct Parametr {
 	uint8_t Version;
@@ -183,23 +180,6 @@ uint8_t set_pwm(uint8_t val) {
 	if(val <= 100) PWMValue = val;
 	return PWMValue;
 }
-
-/*int16_t float_window(int16_t Value) {
-	static uint16_t Index = 0;
-	static int64_t Summ = 0;
-
-	Summ += Value;
-
-	Summ -= Buffer[Index];
-
-	Buffer[Index++] = Value;
-
-	if (Index == AccSizeMacro(ACC_BITS)) {
-		Index = 0;
-	}
-
-	return (Summ >> ACC_BITS);
-}*/
 
 void save_eeprom() {
 	cli();
@@ -254,6 +234,7 @@ void get_but() {
 #define SHT_DEC_BUT	2
 #define MIT_INC_BUT	3
 #define MIT_DEC_BUT	4
+#define INC_SCA_BUT	5
 #endif
 
 void port_init() {
@@ -279,15 +260,16 @@ void port_init() {
 	SetBitVal(PORTC, MIT_INC_BUT, 1);
 	SetBitVal(DDRC, MIT_DEC_BUT, 0);
 	SetBitVal(PORTC, MIT_DEC_BUT, 1);
+	SetBitVal(DDRC, INC_SCA_BUT, 0);
+	SetBitVal(PORTC, INC_SCA_BUT, 1);
 #endif
 }
 
 uint8_t calc_time_pwm(float temperature, uint16_t time, uint8_t vol) {
-
 	uint32_t lpwm;
 	float lp;
 
-	lp = (((float)vol + WATER_VOL) * 1.163 * (Parametr.THParam[THTemperature] - temperature)) / (((float)time / 60.0) * HEATING_EFF);
+	lp = (((float)vol + SHIRT_VOL) * 1.163 * (Parametr.THParam[THTemperature] - temperature)) / (((float)time / 60.0) * HEATING_EFF);
 	lpwm = lp / HEATING_POWER * 100.0;
 	if (lpwm > 100) lpwm = 100;
 	return lpwm;
@@ -314,34 +296,36 @@ void timer2_init() {
 uint8_t PID(float Set, float Value, float Kp, float Ki, float Kd)
 {
 	float E_pid;
-
 	float Pr;
-	float Integ = 0;
+	static float Integ = 0;
 	float Df;
 	static float E_pid_old;
 
 	int16_t PWR;
 
-	E_pid = (Set - Value); // *10 так как диапазон выходных данных до 1000, что бы получить мощность с дискретностью 0,1%
-	Pr = Kp * E_pid; // пропорциональна€ составл€юща€
+	E_pid = (Set - Value);
+
+	/* ѕропорциональна€ составл€юща€ */
+	Pr = Kp * E_pid;
 	Pr = constrainF( Pr, (-100.0), (100.0) ); // ограничиваем +/-1000
 
-	if (Ki>0) {
-		Integ = Integ + (E_pid / Ki); // интегральна€ составл€юща€
-		Integ = constrainF( Integ, (MIN_POWER * 1.0), (MAX_POWER * 1.0) ); // ограничиваем интегральную составл€ющую 0..100%
+	/* »нтегральна€ составл€юща€ */
+	if (Ki > 0) {
+		Integ += (E_pid / Ki);
+		Integ = constrainF( Integ, MIN_POWER, MAX_POWER ); // ограничиваем интегральную составл€ющую 0..100%
 	}
-	else {
-		Integ = 0;
-	}
-	Df = Kd * ( E_pid - E_pid_old ); // дифференциальна€ составл€юща€
-	Df = constrainF( Df, (-100.0), (100.0) ); // ограничиваем +/-100
+	else Integ = 0;
+
+	/* ƒифференциальна€ составл€юща€ */
+	Df = Kd * ( E_pid - E_pid_old );
+	Df = constrainF( Df, (-100.0), (100.0) ); 	// ограничиваем +/-100
 	E_pid_old = E_pid;
 
-	PWR = (int16_t)(Pr + Integ + Df); // считаем текущую мощность
-
+	/* —читаем текущую мощность */
+	PWR = (int16_t)(Pr + Integ + Df);
 	PWR = constrain( PWR, (MIN_POWER * 1), (MAX_POWER * 1)); // ограничиваем текущую мощность 0..100%
 
-	return PWR;
+	return (uint8_t)PWR;
 }
 
 #define BAUD 9600
@@ -375,7 +359,7 @@ void send_packet(char *pack) {
 	Packet.Data[strl] = 0x0D;
 	Packet.Data[strl + 1] = 0x0A;
 	// «апись стартового байта в регистр UDR
-	UDR = 0x01;	//Packet.Data[0];
+	UDR = Packet.Data[0];
 }
 
 void beep(uint16_t time, uint8_t cycle) {
@@ -385,17 +369,72 @@ void beep(uint16_t time, uint8_t cycle) {
 	}
 }
 
+uint8_t past_1(float tshirt, float tmilk) {
+	uint8_t pwm;
+	if(tshirt <= 95.0) {
+		pwm = PID((float)Parametr.PasteurizerParam[PasteurizerTemp], tmilk, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
+	}
+	else pwm = 0;
+	return pwm;
+}
+
+enum Past2StateEnum {
+	Idle = -1,
+	FastHeat,
+	WaitEqual,
+	PIDControl
+};
+
+volatile int8_t Past2State = Idle;
+
+void past_2_init() {
+	Past2State = FastHeat;
+}
+
+volatile float integral_temp;
+
+uint8_t past_2(float tshirt, float tmilk) {
+	uint8_t pwm;
+
+	//volatile float lK1 = (13 / ((13.0 + 30.0) / 100.0) ) / 100.0;			// K1(WATER_VOL, Parametr.THParam[THVolume]);
+	//volatile float lK2 = 1.0 - lK1;										// K2(lK1);
+
+	volatile float lK1 = K1(SHIRT_VOL, Parametr.THParam[THVolume]);
+	volatile float lK2 = K2(lK1);
+
+	integral_temp = (tshirt * lK1) + (tmilk * lK2);
+
+	switch (Past2State) {
+		case FastHeat : {
+			pwm = 100;
+			if(integral_temp > Parametr.PasteurizerParam[PasteurizerTemp]) Past2State = WaitEqual;
+		} break;
+
+		case WaitEqual : {
+			pwm = 0;
+			if((tshirt - tmilk) < 2.0) Past2State = PIDControl;
+		} break;
+
+		case PIDControl : {
+			pwm = PID((float)Parametr.PasteurizerParam[PasteurizerTemp], tmilk, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
+		} break;
+		default: pwm = 0; break;
+	}
+
+	return pwm;
+}
+
 ISR(USART_TXC_vect)
 {
 	uint8_t *Pointer = (uint8_t *)&(Packet.Data);
 
-	static unsigned char TxIndex = 0;
+	static unsigned char TxIndex = 1;
 
 	if (TxIndex < packetSize) {
 		UDR = *(Pointer + TxIndex);
 		TxIndex++;
 	}
-	else TxIndex = 0;
+	else TxIndex = 1;
 }
 
 // 1ms timer
@@ -424,10 +463,11 @@ ISR(TIMER2_COMP_vect) {
 		}
 	}
 
-	/*if(++TempCnt == 1000) {
+	static uint16_t TempCnt = 0;
+	if(++TempCnt == 100) {
 		TempCnt = 0;
 		Flag.TempMes = 1;
-	}*/
+	}
 
 	BUT_Poll();
 
@@ -454,22 +494,21 @@ ISR(TIMER1_COMPA_vect)
 		PastTimeCounter--;
 	}
 	Flag.SendEn = 1;
-	Flag.TempMes = 1;
+	// Flag.TempMes = 1;
 }
 
 char Text[16];
 char tmpText[3][6];
+volatile int16_t tmp;
 
 int main() {
-	//float TmpTemp = 0.0;
-	float TempForPID = 0.0;
-	float Temperature[2] = {30.0, 25.0};
+	float Temperature[2] = {65.0, 55.0};
 	uint8_t PIDEditMode = PID_None_Edit;
 	int8_t THMode = THNone;
 	int8_t PastEditMode = PasteurizerNone;
 
 	uint8_t Mode = ShowTime;
-	uint8_t HeatState = HeatShirt;
+	//uint8_t HeatState = HeatShirt;
 	uint8_t FlagActivity = 0;
 	int8_t TimeEdit = TENone;
 
@@ -499,7 +538,6 @@ int main() {
 
 	int8_t Time[3];
 	rtc_init(0, 1, 0);
-	// rtc_set_time(0, 0, 0);
 	rtc_get_time( (uint8_t*)&Time[Hour], (uint8_t*)&Time[Minute], (uint8_t*)&Time[Second]);
 
 	TIMSK = (1 << OCIE1A) | (1 << OCIE2) ;
@@ -510,6 +548,8 @@ int main() {
 	sei();
 
 	beep(250, 3);
+
+	fw_filter_init();
 
 	while(1) {
 		get_but();
@@ -527,12 +567,13 @@ int main() {
 					SetBitVal(OUT1_PORT, OUT1_PIN, HIGH);
 					Flag.PastEn = 1;
 					PasteurizerAction = PasteurizerHeating;
-					HeatState = HeatShirt;
+					past_2_init();
+					//HeatState = FastHeat;
 				} break;
 				case TimeControl : {
 					SetBitVal(OUT1_PORT, OUT1_PIN, HIGH);
 					Flag.TimeEn = 1;
-					HeatState = HeatShirt;
+					//HeatState = HeatShirt;
 					PWMValue = calc_time_pwm(Temperature[Shirt], Parametr.THParam[THTime], Parametr.THParam[THVolume]);
 					} break;
 				case ManualControl : {
@@ -559,61 +600,49 @@ int main() {
 		/************************************************************************************************************************  нопки */
 
 #if EMUL
+		float val = (BitIsClear(PINC, INC_SCA_BUT))?(0.1):(1.0);
 		if(BitIsClear(PINC, SHT_INC_BUT)) {
 			while(BitIsClear(PINC, SHT_INC_BUT));
-			Temperature[Shirt] += 1.0;
+			Temperature[Shirt] += val;
 		}
 		if(BitIsClear(PINC, SHT_DEC_BUT)) {
 			while(BitIsClear(PINC, SHT_DEC_BUT));
-			Temperature[Shirt] -= 1.0;
+			Temperature[Shirt] -= val;
 		}
 		if(BitIsClear(PINC, MIT_INC_BUT)) {
 			while(BitIsClear(PINC, MIT_INC_BUT));
-			Temperature[Milk] += 1.0;
+			Temperature[Milk] += val;
 		}
 		if(BitIsClear(PINC, MIT_DEC_BUT)) {
 			while(BitIsClear(PINC, MIT_DEC_BUT));
-			Temperature[Milk] -= 1.0;
+			Temperature[Milk] -= val;
 		}
 #endif
 		if(Flag.TempMes == 1) {
 			Flag.TempMes = 0;
 #if !EMUL
-			Temperature[Shirt] = ADS1115_readADC_SingleEnded(Shirt) * 0.003125;
-			Temperature[Milk] = ADS1115_readADC_SingleEnded(Milk) * 0.003125;
+			//Temperature[Shirt] = ADS1115_readADC_SingleEnded(Shirt) * 0.003125;
+			//Temperature[Milk] = ADS1115_readADC_SingleEnded(Milk) * 0.003125;
+
+			Temperature[Shirt] = (fw_filter(ADS1115_readADC_SingleEnded(Shirt), Shirt)) * 0.003125;
+			Temperature[Milk] = (fw_filter(ADS1115_readADC_SingleEnded(Milk), Milk)) * 0.003125;
+
+			Temperature[Milk] += mapf(Temperature[Milk], 20.8, 63.82, 0.6, 3.4);	//  оррекци€ температуры.
 #endif
 
 			if(Flag.EditParam == 0) rtc_get_time( (uint8_t*)&Time[Hour], (uint8_t*)&Time[Minute], (uint8_t*)&Time[Second]);
 
 			/* ”правление пастеризацией *********************************************************************************************/
 			if(Flag.PastEn) {
-				switch(HeatState) {
-					case HeatShirt : {
-						TempForPID = Temperature[Shirt];
-						if(Temperature[Shirt] >= (float)Parametr.PasteurizerParam[PasteurizerTemp]) {
-							HeatState = HeatMilk;
-						}
-					} break;
-					case WaitTempAreEqual : {
-						TempForPID = Temperature[Shirt];
-						// TempForPID = (Temperature[Shirt] * K1) + (Temperature[Milk] * K2);
-						if(Temperature[Milk] >= Temperature[Shirt]) {
-							HeatState = HeatMilk;
-						}
-					} break;
-					case HeatMilk : {
-						TempForPID = Temperature[Milk];
-						//TempForPID = (Temperature[Shirt] * K1) + (Temperature[Milk] * K2);
-					} break;
-					default : break;
-				}
 
-				PWMValue = PID((float)Parametr.PasteurizerParam[PasteurizerTemp], TempForPID, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
+				// PWMValue = PID((float)Parametr.PasteurizerParam[PasteurizerTemp], TempForPID, Parametr.PIDCoeff[PCoeff], Parametr.PIDCoeff[ICoeff], Parametr.PIDCoeff[DCoeff]);
+
+				// PWMValue = past_1(Temperature[Shirt], Temperature[Milk]);
+				PWMValue = past_2(Temperature[Shirt], Temperature[Milk]);
 
 				if(PasteurizerAction == PasteurizerHeating) {
 					if(Temperature[Milk] >= Parametr.PasteurizerParam[PasteurizerTemp]) {
 						PasteurizerAction = PasteurizerDelay;
-						// PastTimeCounter = Parametr.PasteurizerParam[PasteurizerTime] * 60;
 					}
 				}
 
@@ -631,7 +660,7 @@ int main() {
 
 			/* Ќарев по времени *****************************************************************************************************/
 			if(Flag.TimeEn) {
-				switch(HeatState) {
+				/*switch(HeatState) {
 					case HeatShirt : {
 						TempForPID = Temperature[Shirt];
 						if(Temperature[Shirt] >= (float)Parametr.THParam[THTemperature]) {
@@ -654,7 +683,7 @@ int main() {
 						}
 					} break;
 					default : break;
-				}
+				}*/
 			}
 			/***************************************************************************************************** Ќарев по времени */
 
@@ -759,7 +788,20 @@ int main() {
 				LCD_Goto(0, 0);
 				LCD_SendStr(Text);
 
-				float_to_str(tmpText[0], TempForPID, 1);
+				switch (Past2State) {
+					case FastHeat : {
+						float_to_str(tmpText[0], integral_temp, 1);
+					} break;
+					case WaitEqual : {
+						sprintf(tmpText[0], "Wait");
+					} break;
+					case PIDControl : {
+						sprintf(tmpText[0], "PID ");
+					} break;
+					default: {
+						sprintf(tmpText[0], "    ");
+					} break;
+				}
 				if(PastEditMode == PasteurizerTime) sprintf(tmpText[1], "%2d:  ", Parametr.PasteurizerParam[PasteurizerTime]);
 				else sprintf(tmpText[1], "%2d:%02d", PastTimeCounter / 60, PastTimeCounter % 60);
 				// состо€ние --------------
@@ -850,7 +892,7 @@ int main() {
 
 				if(PIDEditMode != PID_None_Edit) {
 					if((ButtonCode == BUT_INC) && (ButtonEvent == BUT_RELEASED_CODE)) {
-						if(Parametr.PIDCoeff[PIDEditMode - 1] < 20.0) {
+						if(Parametr.PIDCoeff[PIDEditMode - 1] < 50.0) {
 							Parametr.PIDCoeff[PIDEditMode - 1] += 0.1;
 						}
 					}
